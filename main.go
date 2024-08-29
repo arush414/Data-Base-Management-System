@@ -75,6 +75,22 @@ func (node BNode) setHeader(btype uint16, nkeys uint16) {
 	binary.LittleEndian.PutUint16(node.data[2:4], nkeys)
 }
 
+// Pointers Functions
+
+// getPtr function to get the specific pointer given index of the pointer
+func (node BNode) getPtr(idx uint16) uint64 {
+	assert(idx < node.nkeys(), "Index value exceeds the total number of keys of the node")
+	pos := HEADER + 8*idx
+	return binary.LittleEndian.Uint64(node.data[pos:])
+}
+
+// setPtr function to set the specific pointer given index of the pointer
+func (node BNode) setPtr(idx uint16, val uint64) {
+	assert(idx < node.nkeys(), "Index value exceeds the total number of keys")
+	pos := HEADER + 8*idx
+	binary.LittleEndian.PutUint64(node.data[pos:], val)
+}
+
 func main() {
 
 }
