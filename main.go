@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 )
 
@@ -54,6 +55,24 @@ func assert(condition bool, message string) {
 func init() {
 	node1max := HEADER + 8 + 2 + 4 + BTREE_MAX_KEY_SIZE + BTREE_MAX_VAL_SIZE
 	assert(node1max <= BTREE_PAGE_SIZE, "Size Limit Exceeded") // maximum KV
+}
+
+// Header Functions
+
+// btype function for getting the information about the node ie internal node or leaf node
+func (node BNode) btype() uint16 {
+	return binary.LittleEndian.Uint16(node.data[0:2])
+}
+
+// nkeys function to get number of keys in the node
+func (node BNode) nkeys() uint16 {
+	return binary.LittleEndian.Uint16(node.data[2:4])
+}
+
+// setHeader function to set or update the header of the given node
+func (node BNode) setHeader(btype uint16, nkeys uint16) {
+	binary.LittleEndian.PutUint16(node.data[0:2], btype)
+	binary.LittleEndian.PutUint16(node.data[2:4], nkeys)
 }
 
 func main() {
