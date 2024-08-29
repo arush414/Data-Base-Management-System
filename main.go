@@ -113,6 +113,36 @@ func (node BNode) setOffset(idx uint16, offset uint16) {
 	binary.LittleEndian.PutUint16(node.data[offsetPos(node, idx):], offset)
 }
 
+// key-values
+
+// kvPos function to get starting index position for 'idx' key value pair
+func (node BNode) kvPos(idx uint16) uint16 {
+	assert(idx >= 0 && idx <= node.nkeys(), "Index is not present between 0 and nkeys")
+	return HEADER + 8*node.nkeys() + 2*node.nkeys() + node.getOffset(idx)
+}
+
+// getKey function to get the keys given the idx value
+func (node BNode) getKey(idx uint16) []byte {
+	assert(idx >= 0 && idx < node.nkeys(), "Index is not present between 0 and nkeys")
+	pos := node.kvPos(idx)
+	klen := binary.LittleEndian.Uint16(node.data[pos:])
+	return node.data[pos+4:][:klen]
+}
+
+// getVal function to the values given the idx value
+func (node BNode) getVal(idx uint16) []byte {
+	assert(idx < node.nkeys(), "Index is not present between 0 and nkeys")
+	pos := node.kvPos(idx)
+	klen := binary.LittleEndian.Uint16(node.data[pos+0:])
+	vlen := binary.LittleEndian.Uint16(node.data[pos+2:])
+	return node.data[pos+4+klen:][:vlen]
+}
+
+// get size of node
+func (node BNode) nbytes() uint16 {
+	return node.kvPos(node.nkeys())
+}
+
 func main() {
 
 }
