@@ -54,7 +54,7 @@ func assert(condition bool, message string) {
 // 4.2 init function for initialising nodes size
 func init() {
 	node1max := HEADER + 8 + 2 + 4 + BTREE_MAX_KEY_SIZE + BTREE_MAX_VAL_SIZE
-	assert(node1max <= BTREE_PAGE_SIZE, "Size Limit Exceeded") // maximum KV
+	assert(node1max <= BTREE_PAGE_SIZE, "Maximum Size Limit Exceeded") // maximum KV
 }
 
 // Header Functions
@@ -77,18 +77,40 @@ func (node BNode) setHeader(btype uint16, nkeys uint16) {
 
 // Pointers Functions
 
-// getPtr function to get the specific pointer given index of the pointer
+// getPtr function to get the specific pointer of the bnode given index of the pointer
 func (node BNode) getPtr(idx uint16) uint64 {
-	assert(idx < node.nkeys(), "Index value exceeds the total number of keys of the node")
+	assert(0 <= idx && idx < node.nkeys(), "Index value is not present between 0 and nkeys-1")
 	pos := HEADER + 8*idx
 	return binary.LittleEndian.Uint64(node.data[pos:])
 }
 
-// setPtr function to set the specific pointer given index of the pointer
+// setPtr function to set the specific pointer of the bnode given index of the pointer
 func (node BNode) setPtr(idx uint16, val uint64) {
-	assert(idx < node.nkeys(), "Index value exceeds the total number of keys")
+	assert(0 <= idx && idx < node.nkeys(), "Index value is not present between 0 and nkeys-1")
 	pos := HEADER + 8*idx
 	binary.LittleEndian.PutUint64(node.data[pos:], val)
+}
+
+// Offset Functions
+
+// offsetPos function to get the specific offset position of the bnode given the index
+// !Internal Function
+func offsetPos(node BNode, idx uint16) uint16 {
+	assert(1 <= idx && idx <= node.nkeys(), "Index value is not present between 1 and nkeys")
+	return HEADER + 8*node.nkeys() + 2*(idx-1) // using 1 based indexing
+}
+
+// getOffset function to get the offset data given the index value
+func (node BNode) getOffset(idx uint16) uint16 {
+	if idx == 0 {
+		return 0
+	}
+	return binary.LittleEndian.Uint16(node.data[offsetPos(node, idx):])
+}
+
+// setOffset function to set the offset data given the index value
+func (node BNode) setOffset(idx uint16, offset uint16) {
+	binary.LittleEndian.PutUint16(node.data[offsetPos(node, idx):], offset)
 }
 
 func main() {
