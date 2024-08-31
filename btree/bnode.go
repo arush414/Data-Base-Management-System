@@ -114,3 +114,31 @@ func (node BNode) getVal(idx uint16) []byte {
 func (node BNode) nbytes() uint16 {
 	return node.kvPos(node.nkeys())
 }
+
+// The nodeAppendRange function copies keys from an old node to a new node.
+// copy multiple KVs into the position
+func nodeAppendRange(
+	new BNode, old BNode,
+	dstNew uint16, srcOld uint16, n uint16,
+) {
+	utils.Assert(srcOld+n <= old.nkeys(), "The Source range is invalid")      // The source range in the old B-node is valid
+	utils.Assert(dstNew+n <= new.nkeys(), "The Destination range is invalid") // The destination range in the new B-node is valid
+	if n == 0 {
+		return
+	}
+	// pointers
+	for i := uint16(0); i < n; i++ {
+		new.setPtr(dstNew+i, old.getPtr(srcOld+i))
+	}
+	// offsets
+	dstBegin := new.getOffset(dstNew)
+	srcBegin := old.getOffset(srcOld)
+	for i := uint16(1); i <= n; i++ { // NOTE: the range is [1, n]
+		offset := dstBegin + old.getOffset(srcOld+i) - srcBegin
+		new.setOffset(dstNew+i, offset)
+	}
+	// KVs
+	begin := old.kvPos(srcOld)
+	end := old.kvPos(srcOld + n)
+	copy(new.data[new.kvPos(dstNew):], old.data[begin:end])
+}
