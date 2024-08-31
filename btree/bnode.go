@@ -1,33 +1,15 @@
-package BTree
+package btree
 
 import (
+	"bytes"
 	"encoding/binary"
-
 	"github.com/infinity1729/Data-Base-Management-System/utils"
-)
-
-/*A node consists of:
-1. A fixed-sized header containing the type of the node (leaf node or internal node) and the number of keys.
-2. A list of pointers to the child nodes. (Used by internal nodes).
-3. A list of offsets pointing to each key-value pair.
-4. Packed KV pairs:
-
-| type	| nkeys |   pointers |  offsets 	| key-values
-| 	2B 	| 	2B	| nkeys * 8B | nkeys * 2B 	| ...
-
-This is the format of the KV pair. Lengths followed by data.
-| klen | vlen | key | val |
-| 	2B 	|	2B | ... | ... |
-*/
-
-const (
-	BNODE_NODE = 0 //internal node without values
-	BNODE_LEAF = 1 //leaf node with values
 )
 
 type BNode struct {
 	data []byte // can be dumped to the disk
 }
+
 
 // Header Functions
 
@@ -64,13 +46,6 @@ func (node BNode) setPtr(idx uint16, val uint64) {
 }
 
 // Offset Functions
-
-// offsetPos function to get the specific offset position of the bnode given the index
-// !Internal Function
-func offsetPos(node BNode, idx uint16) uint16 {
-	utils.Assert(1 <= idx && idx <= node.nkeys(), "Index value is not present between 1 and nkeys")
-	return HEADER + 8*node.nkeys() + 2*(idx-1) // using 1 based indexing
-}
 
 // getOffset function to get the offset data given the index value
 func (node BNode) getOffset(idx uint16) uint16 {
