@@ -1,7 +1,6 @@
 package btree
 
 import (
-	"bytes"
 	"encoding/binary"
 	"github.com/infinity1729/Data-Base-Management-System/utils"
 )
