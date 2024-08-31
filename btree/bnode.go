@@ -1,33 +1,15 @@
-package BTree
+package btree
 
 import (
+	"bytes"
 	"encoding/binary"
-
 	"github.com/infinity1729/Data-Base-Management-System/utils"
-)
-
-/*A node consists of:
-1. A fixed-sized header containing the type of the node (leaf node or internal node) and the number of keys.
-2. A list of pointers to the child nodes. (Used by internal nodes).
-3. A list of offsets pointing to each key-value pair.
-4. Packed KV pairs:
-
-| type	| nkeys |   pointers |  offsets 	| key-values
-| 	2B 	| 	2B	| nkeys * 8B | nkeys * 2B 	| ...
-
-This is the format of the KV pair. Lengths followed by data.
-| klen | vlen | key | val |
-| 	2B 	|	2B | ... | ... |
-*/
-
-const (
-	BNODE_NODE = 0 //internal node without values
-	BNODE_LEAF = 1 //leaf node with values
 )
 
 type BNode struct {
 	data []byte // can be dumped to the disk
 }
+
 
 // Header Functions
 
@@ -64,13 +46,6 @@ func (node BNode) setPtr(idx uint16, val uint64) {
 }
 
 // Offset Functions
-
-// offsetPos function to get the specific offset position of the bnode given the index
-// !Internal Function
-func offsetPos(node BNode, idx uint16) uint16 {
-	utils.Assert(1 <= idx && idx <= node.nkeys(), "Index value is not present between 1 and nkeys")
-	return HEADER + 8*node.nkeys() + 2*(idx-1) // using 1 based indexing
-}
 
 // getOffset function to get the offset data given the index value
 func (node BNode) getOffset(idx uint16) uint16 {
@@ -113,32 +88,4 @@ func (node BNode) getVal(idx uint16) []byte {
 // get size of node
 func (node BNode) nbytes() uint16 {
 	return node.kvPos(node.nkeys())
-}
-
-// The nodeAppendRange function copies keys from an old node to a new node.
-// copy multiple KVs into the position
-func nodeAppendRange(
-	new BNode, old BNode,
-	dstNew uint16, srcOld uint16, n uint16,
-) {
-	utils.Assert(srcOld+n <= old.nkeys(), "The Source range is invalid")      // The source range in the old B-node is valid
-	utils.Assert(dstNew+n <= new.nkeys(), "The Destination range is invalid") // The destination range in the new B-node is valid
-	if n == 0 {
-		return
-	}
-	// pointers
-	for i := uint16(0); i < n; i++ {
-		new.setPtr(dstNew+i, old.getPtr(srcOld+i))
-	}
-	// offsets
-	dstBegin := new.getOffset(dstNew)
-	srcBegin := old.getOffset(srcOld)
-	for i := uint16(1); i <= n; i++ { // NOTE: the range is [1, n]
-		offset := dstBegin + old.getOffset(srcOld+i) - srcBegin
-		new.setOffset(dstNew+i, offset)
-	}
-	// KVs
-	begin := old.kvPos(srcOld)
-	end := old.kvPos(srcOld + n)
-	copy(new.data[new.kvPos(dstNew):], old.data[begin:end])
 }
