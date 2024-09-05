@@ -1,15 +1,14 @@
 package btree
 
 import (
-	"bytes"
 	"encoding/binary"
+
 	"github.com/infinity1729/Data-Base-Management-System/utils"
 )
 
 type BNode struct {
 	data []byte // can be dumped to the disk
 }
-
 
 // Header Functions
 
