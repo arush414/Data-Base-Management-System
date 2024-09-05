@@ -156,7 +156,7 @@ func nodeSplit2(left BNode, right BNode, old BNode) {
 	for left_bytes() > BTREE_PAGE_SIZE {
 		nleft--
 	}
-	utils.Assert(nleft >= 1, "nleft is less than 1")
+	utils.Assert(nleft >= 1, "left has 0 keys")
 
 	// try to fit the right half
 	right_bytes := func() uint16 {
@@ -165,15 +165,14 @@ func nodeSplit2(left BNode, right BNode, old BNode) {
 	for right_bytes() > BTREE_PAGE_SIZE {
 		nleft++
 	}
-	utils.Assert(nleft < old.nkeys(), "Weird Weird")
+	utils.Assert(nleft < old.nkeys(), "Right has 0 keys")
 	nright := old.nkeys() - nleft
-
 	left.setHeader(old.btype(), nleft)
 	right.setHeader(old.btype(), nright)
 	nodeAppendRange(left, old, 0, 0, nleft)
-	nodeAppendRange(right, old, 0, nleft, nright) // should be nleft+1 right?
+	nodeAppendRange(right, old, 0, nleft+1, nright) // should be nleft+1 right?
 	// the left half may be still too big
-	utils.Assert(right.nbytes() <= BTREE_PAGE_SIZE, "Redundanttttttt")
+	utils.Assert(right.nbytes() <= BTREE_PAGE_SIZE, "Right split unsuccesfull")
 }
 
 // split a node if it's too big. the results are 1~3 nodes.
