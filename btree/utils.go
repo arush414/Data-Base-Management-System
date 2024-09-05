@@ -313,31 +313,8 @@ func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
 		tree.del(node.getPtr(idx + 1))
 		nodeReplace2Kid(new, node, idx, tree.new(merged), merged.getKey(0))
 	case mergeDir == 0:
-		assert(updated.nkeys() > 0)
+		utils.Assert(updated.nkeys() > 0, "Updated  node is empty. Possible reason is that the key is not found.")
 		nodeReplaceKidN(tree, new, node, idx, updated)
 	}
 	return new
 }
-
-
-// delete a key from the tree
-func treeDelete(tree *BTree, node BNode, key []byte) BNode {
-	idx := nodeLookupLE(node, key)
-	
-	switch node.btype() {
-	case BNODE_LEAF:
-		if !bytes.Equal(key, node.getKey(idx)) {
-			return BNode{} // not found
-		}
-		// delete the key in the leaf
-		new := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
-		leafDelete(new, node, idx)
-		return new
-	case BNODE_NODE:
-		//recursive deletion
-		return nodeDelete(tree, node, idx, key)
-	default:
-		panic("bad node!")
-	}
-}
-
