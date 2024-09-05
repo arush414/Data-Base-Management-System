@@ -2,6 +2,7 @@ package btree
 
 import (
 	"bytes"
+	"encoding/binary"
 
 	"github.com/infinity1729/Data-Base-Management-System/utils"
 )
@@ -58,6 +59,157 @@ func nodeAppendRange(
 	copy(new.data[new.kvPos(dstNew):], old.data[begin:end])
 }
 
+// copy a KV into the position
+func nodeAppendKV(new BNode, idx uint16, ptr uint64, key []byte, val []byte) {
+	// ptrs
+	new.setPtr(idx, ptr)
+	// KVs
+	pos := new.kvPos(idx)
+	binary.LittleEndian.PutUint16(new.data[pos+0:], uint16(len(key))) // puts 2 bytes of length of keys
+	binary.LittleEndian.PutUint16(new.data[pos+2:], uint16(len(val))) // puts 2 bytes of length of values
+	copy(new.data[pos+4:], key)                                       // copies keys into length of key bytes of stream
+	copy(new.data[pos+4+uint16(len(key)):], val)                      // copies values into length of value bytes of stream
+	// the offset of the next key
+	new.setOffset(idx+1, new.getOffset(idx)+4+uint16((len(key)+len(val))))
+}
+
+// add a new key to a leaf node
+func leafInsert(
+	new BNode, old BNode, idx uint16,
+	key []byte, val []byte,
+) {
+	new.setHeader(BNODE_LEAF, old.nkeys()+1)
+	nodeAppendRange(new, old, 0, 0, idx)
+	nodeAppendKV(new, idx, 0, key, val)
+	nodeAppendRange(new, old, idx+1, idx, old.nkeys()-idx)
+}
+
+// update an existing key from a leaf node
+func leafUpdate(
+	new BNode, old BNode, idx uint16,
+	key []byte, val []byte,
+) {
+	new.setHeader(BNODE_LEAF, old.nkeys())
+	nodeAppendRange(new, old, 0, 0, idx)
+	nodeAppendKV(new, idx, 0, key, val)
+	nodeAppendRange(new, old, idx+1, idx+1, old.nkeys()-(idx+1))
+}
+
+// insert a KV into a node, the result might be split into 2 nodes.
+// the caller is responsible for deallocating the input node
+// and splitting and allocating result nodes.
+func treeInsert(tree *BTree, node BNode, key []byte, val []byte) BNode {
+	// the result node.
+	// it's allowed to be bigger than 1 page and will be split if so
+	new := BNode{data: make([]byte, 2*BTREE_PAGE_SIZE)}
+	// where to insert the key?
+	idx := nodeLookupLE(node, key)
+	// act depending on the node type
+	switch node.btype() {
+	case BNODE_LEAF:
+		// leaf, node.getKey(idx) <= key
+		if bytes.Equal(key, node.getKey(idx)) {
+			// found the key, update it.
+			leafUpdate(new, node, idx, key, val)
+		} else {
+			// insert it after the position.
+			leafInsert(new, node, idx+1, key, val)
+		}
+	case BNODE_NODE:
+		// internal node, insert it to a kid node.
+		nodeInsert(tree, new, node, idx, key, val)
+	default:
+		panic("bad node!")
+	}
+	return new
+}
+
+// part of the treeInsert(): KV insertion to an internal node
+func nodeInsert(
+	tree *BTree, new BNode, node BNode, idx uint16,
+	key []byte, val []byte,
+) {
+	// get and deallocate the kid node
+	kptr := node.getPtr(idx) // get the pointer given the index
+	knode := tree.get(kptr)  // get the corresponding pointer
+	tree.del(kptr)           // free the corresponding pointer
+	// recursive insertion to the kid node
+	knode = treeInsert(tree, knode, key, val)
+	// split the result
+	nsplit, splited := nodeSplit3(knode)
+	// update the kid links
+	nodeReplaceKidN(tree, new, node, idx, splited[:nsplit]...)
+}
+
+// split a bigger-than-allowed node into two.
+// the second node always fits on a page.
+func nodeSplit2(left BNode, right BNode, old BNode) {
+	utils.Assert(old.nkeys() >= 2, "Not enough keys to split")
+
+	// the initial guess
+	nleft := old.nkeys() / 2
+
+	// try to fit the left half
+	left_bytes := func() uint16 {
+		return HEADER + 8*nleft + 2*nleft + old.getOffset(nleft)
+	}
+	for left_bytes() > BTREE_PAGE_SIZE {
+		nleft--
+	}
+	utils.Assert(nleft >= 1, "left has 0 keys")
+
+	// try to fit the right half
+	right_bytes := func() uint16 {
+		return old.nbytes() - left_bytes() + HEADER
+	}
+	for right_bytes() > BTREE_PAGE_SIZE {
+		nleft++
+	}
+	utils.Assert(nleft < old.nkeys(), "Right has 0 keys")
+	nright := old.nkeys() - nleft
+	left.setHeader(old.btype(), nleft)
+	right.setHeader(old.btype(), nright)
+	nodeAppendRange(left, old, 0, 0, nleft)
+	nodeAppendRange(right, old, 0, nleft+1, nright) // should be nleft+1 right?
+	// the left half may be still too big
+	utils.Assert(right.nbytes() <= BTREE_PAGE_SIZE, "Right split unsuccesfull")
+}
+
+// split a node if it's too big. the results are 1~3 nodes.
+func nodeSplit3(old BNode) (uint16, []BNode) {
+	if old.nbytes() <= BTREE_PAGE_SIZE {
+		old.data = old.data[:BTREE_PAGE_SIZE]
+		return 1, []BNode{old}
+	}
+	left := BNode{make([]byte, 2*BTREE_PAGE_SIZE)} // might be split later
+	right := BNode{make([]byte, BTREE_PAGE_SIZE)}
+	nodeSplit2(left, right, old)
+	if left.nbytes() <= BTREE_PAGE_SIZE {
+		left.data = left.data[:BTREE_PAGE_SIZE]
+		return 2, []BNode{left, right}
+	}
+	// the left node is still too large
+	leftleft := BNode{make([]byte, BTREE_PAGE_SIZE)}
+	middle := BNode{make([]byte, BTREE_PAGE_SIZE)}
+	nodeSplit2(leftleft, middle, left)
+	utils.Assert(leftleft.nbytes() <= BTREE_PAGE_SIZE, "Requires more than 3 splits")
+	return 3, []BNode{leftleft, middle, right}
+}
+
+// replace a link with multiple links
+func nodeReplaceKidN(
+	tree *BTree, new BNode, old BNode, idx uint16,
+	kids ...BNode,
+) {
+	inc := uint16(len(kids))
+	new.setHeader(BNODE_NODE, old.nkeys()+inc-1)
+	nodeAppendRange(new, old, 0, 0, idx)
+	for i, node := range kids {
+		nodeAppendKV(new, idx+uint16(i), tree.new(node), node.getKey(0), nil)
+	}
+	nodeAppendRange(new, old, idx+inc, idx+1, old.nkeys()-(idx+1))
+}
+
 // remove a key from a leaf node
 func leafDelete(new BNode, old BNode, idx uint16) {
 	new.setHeader(BNODE_LEAF, old.nkeys()-1)
@@ -68,6 +220,8 @@ func leafDelete(new BNode, old BNode, idx uint16) {
 // merge 2 nodes into 1
 func nodeMerge(new BNode, left BNode, right BNode) {
 	new.setHeader(left.btype(), left.nkeys()+right.nkeys())
+	nodeAppendRange(new, left, 0, 0, left.nkeys())
+	nodeAppendRange(new, right, left.nkeys(), 0, right.nkeys())
 	nodeAppendRange(new, left, 0, 0, left.nkeys())
 	nodeAppendRange(new, right, left.nkeys(), 0, right.nkeys())
 }
@@ -134,7 +288,7 @@ func treeDelete(tree *BTree, node BNode, key []byte) BNode {
 	}
 }
 
-// recuraive funcion to delete from internal node used inside the treeDelete function
+// recursive funcion to delete from internal node used inside the treeDelete function
 func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
 	// recurse into the kid
 	kptr := node.getPtr(idx)
@@ -159,8 +313,31 @@ func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
 		tree.del(node.getPtr(idx + 1))
 		nodeReplace2Kid(new, node, idx, tree.new(merged), merged.getKey(0))
 	case mergeDir == 0:
-		utils.Assert(updated.nkeys() > 0, "The updated node should have at least one key")
+		assert(updated.nkeys() > 0)
 		nodeReplaceKidN(tree, new, node, idx, updated)
 	}
 	return new
 }
+
+
+// delete a key from the tree
+func treeDelete(tree *BTree, node BNode, key []byte) BNode {
+	idx := nodeLookupLE(node, key)
+	
+	switch node.btype() {
+	case BNODE_LEAF:
+		if !bytes.Equal(key, node.getKey(idx)) {
+			return BNode{} // not found
+		}
+		// delete the key in the leaf
+		new := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
+		leafDelete(new, node, idx)
+		return new
+	case BNODE_NODE:
+		//recursive deletion
+		return nodeDelete(tree, node, idx, key)
+	default:
+		panic("bad node!")
+	}
+}
+
