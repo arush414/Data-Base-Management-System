@@ -6,7 +6,7 @@ import (
 	"github.com/infinity1729/Data-Base-Management-System/utils"
 )
 
-// offsetPos function to get the specific offset position of the bnode given the index
+// offsetPos function: get the position of the offset pointer given the index
 func offsetPos(node BNode, idx uint16) uint16 {
 	utils.Assert(1 <= idx && idx <= node.nkeys(), "Index value is not present between 1 and nkeys")
 	return HEADER + 8*node.nkeys() + 2*(idx-1) // using 1 based indexing
