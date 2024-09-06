@@ -7,7 +7,7 @@ import (
 	"github.com/infinity1729/Data-Base-Management-System/utils"
 )
 
-// offsetPos function to get the specific offset position of the bnode given the index
+// offsetPos function: get the position of the offset pointer given the index
 func offsetPos(node BNode, idx uint16) uint16 {
 	utils.Assert(1 <= idx && idx <= node.nkeys(), "Index value is not present between 1 and nkeys")
 	return HEADER + 8*node.nkeys() + 2*(idx-1) // using 1 based indexing
@@ -217,9 +217,11 @@ func leafDelete(new BNode, old BNode, idx uint16) {
 	nodeAppendRange(new, old, idx, idx+1, old.nkeys()-(idx+1))
 }
 
-// merge 2nodes into 1
+// merge 2 nodes into 1
 func nodeMerge(new BNode, left BNode, right BNode) {
 	new.setHeader(left.btype(), left.nkeys()+right.nkeys())
+	nodeAppendRange(new, left, 0, 0, left.nkeys())
+	nodeAppendRange(new, right, left.nkeys(), 0, right.nkeys())
 	nodeAppendRange(new, left, 0, 0, left.nkeys())
 	nodeAppendRange(new, right, left.nkeys(), 0, right.nkeys())
 }
@@ -235,7 +237,7 @@ func shouldMerge(
 	if updated.nbytes() > BTREE_PAGE_SIZE/4 {
 		return 0, BNode{}
 	}
-
+	// check left sibling
 	if idx > 0 {
 		sibling := tree.get(node.getPtr(idx - 1))
 		merged := sibling.nbytes() + updated.nbytes() - HEADER
@@ -243,6 +245,7 @@ func shouldMerge(
 			return -1, sibling
 		}
 	}
+	// check right sibling
 	if idx+1 < node.nkeys() {
 		sibling := tree.get(node.getPtr(idx + 1))
 		merged := sibling.nbytes() + updated.nbytes() - HEADER
@@ -253,54 +256,65 @@ func shouldMerge(
 	return 0, BNode{}
 }
 
-// // recursive funcion to delete from internal node used inside the treeDelete function
-// func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
-// 	// recurse into the kid
-// 	kptr := node.getPtr(idx)
-// 	updated := treeDelete(tree, tree.get(kptr), key)
-// 	if len(updated.data) == 0 {
-// 		return BNode{} // not found
-// 	}
-// 	tree.del(kptr)
+// replace 2 adjacent links with 1
+func nodeReplace2Kid(
+	new BNode, old BNode, idx uint16,
+	ptr uint64, key []byte,
+) {
+	new.setHeader(BNODE_NODE, old.nkeys()-1)
+	nodeAppendRange(new, old, 0, 0, idx)
+	nodeAppendKV(new, idx, ptr, key, nil)
+	nodeAppendRange(new, old, idx+1, idx+2, old.nkeys()-(idx+2))
+}
 
-// 	new := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
-// 	// check for merging
-// 	mergeDir, sibling := shouldMerge(tree, node, idx, updated)
-// 	switch {
-// 	case mergeDir < 0: // left
-// 		merged := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
-// 		nodeMerge(merged, sibling, updated)
-// 		tree.del(node.getPtr(idx - 1))
-// 		nodeReplace2Kid(new, node, idx-1, tree.new(merged), merged.getKey(0))
-// 	case mergeDir > 0: // right
-// 		merged := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
-// 		nodeMerge(merged, updated, sibling)
-// 		tree.del(node.getPtr(idx + 1))
-// 		nodeReplace2Kid(new, node, idx, tree.new(merged), merged.getKey(0))
-// 	case mergeDir == 0:
-// 		assert(updated.nkeys() > 0)
-// 		nodeReplaceKidN(tree, new, node, idx, updated)
-// 	}
-// 	return new
-// }
+// delete a key from the tree
+func treeDelete(tree *BTree, node BNode, key []byte) BNode {
+	idx := nodeLookupLE(node, key)
 
-// // delete a key from the tree
-// func treeDelete(tree *BTree, node BNode, key []byte) BNode {
-// 	idx := nodeLookupLE(node, key)
+	switch node.btype() {
+	case BNODE_LEAF:
+		if !bytes.Equal(key, node.getKey(idx)) {
+			return BNode{} // not found
+		}
+		// delete the key in the leaf
+		new := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
+		leafDelete(new, node, idx)
+		return new
+	case BNODE_NODE:
+		//recursive deletion
+		return nodeDelete(tree, node, idx, key)
+	default:
+		panic("bad node!")
+	}
+}
 
-// 	switch node.btype() {
-// 	case BNODE_LEAF:
-// 		if !bytes.Equal(key, node.getKey(idx)) {
-// 			return BNode{} // not found
-// 		}
-// 		// delete the key in the leaf
-// 		new := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
-// 		leafDelete(new, node, idx)
-// 		return new
-// 	case BNODE_NODE:
-// 		//recursive deletion
-// 		return nodeDelete(tree, node, idx, key)
-// 	default:
-// 		panic("bad node!")
-// 	}
-// }
+// recursive funcion to delete from internal node used inside the treeDelete function
+func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
+	// recurse into the kid
+	kptr := node.getPtr(idx)
+	updated := treeDelete(tree, tree.get(kptr), key)
+	if len(updated.data) == 0 {
+		return BNode{} // not found
+	}
+	tree.del(kptr)
+
+	new := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
+	// check for merging
+	mergeDir, sibling := shouldMerge(tree, node, idx, updated)
+	switch {
+	case mergeDir < 0: // left
+		merged := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
+		nodeMerge(merged, sibling, updated)
+		tree.del(node.getPtr(idx - 1))
+		nodeReplace2Kid(new, node, idx-1, tree.new(merged), merged.getKey(0))
+	case mergeDir > 0: // right
+		merged := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
+		nodeMerge(merged, updated, sibling)
+		tree.del(node.getPtr(idx + 1))
+		nodeReplace2Kid(new, node, idx, tree.new(merged), merged.getKey(0))
+	case mergeDir == 0:
+		utils.Assert(updated.nkeys() > 0, "Updated  node is empty. Possible reason is that the key is not found.")
+		nodeReplaceKidN(tree, new, node, idx, updated)
+	}
+	return new
+}

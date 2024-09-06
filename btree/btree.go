@@ -28,7 +28,7 @@ func (tree *BTree) Insert(key []byte, val []byte) {
 		root := BNode{data: make([]byte, BTREE_PAGE_SIZE)}
 		root.setHeader(BNODE_LEAF, 2)
 		// a dummy key, this makes the tree cover the whole key space.
-		// thus a lookup can always find a containing node (nodelookuple) function.
+		// thus a lookup can always find a containing node (nodeLookupLE) function.
 		nodeAppendKV(root, 0, 0, nil, nil)
 		nodeAppendKV(root, 1, 0, key, val)
 		tree.root = tree.new(root) // pointer to the root
@@ -50,4 +50,33 @@ func (tree *BTree) Insert(key []byte, val []byte) {
 	} else {
 		tree.root = tree.new(splitted[0]) // incase lower nodes are splitted so updated the root
 	}
+}
+func (tree *BTree) Delete(key []byte) bool {
+	if !(len(key) != 0) {
+		panic("Key is not equal to 0")
+	}
+
+	if !(len(key) <= BTREE_MAX_KEY_SIZE) {
+		panic("length of key is greater than MAX KEY SIZE")
+	}
+
+	//if the tree is empty
+	if tree.root == 0 {
+		return false
+	}
+
+	updated := treeDelete(tree, tree.get(tree.root), key)
+	if len(updated.data) == 0 {
+		return false //not found
+	}
+
+	tree.del(tree.root)
+	if updated.btype() == BNODE_NODE && updated.nkeys() == 1 {
+		// remove a level, since root has only 1 child
+		tree.root = updated.getPtr(0)
+	} else {
+		tree.root = tree.new(updated)
+	}
+
+	return true
 }
